@@ -1,0 +1,80 @@
+- name: play1-install apache
+  hosts: php
+  become: true
+  tasks:
+    - name: install apache
+      apt:
+        name: apache2
+    - name: Update repositories cache
+      apt:
+        update_cache: yes
+    - name: Enable mod_rewrite
+      apache2_module:
+           state: present
+           name: rewrite
+    - name: Ensure the default Apache port is 8090
+      lineinfile:
+        path: /etc/apache2/ports.conf
+        regexp: '"^Listen 80"'
+        line: Listen 8090
+        state: present
+    - name: edit vertual host configuration
+      lineinfile:
+        dest: /etc/apache2/sites-enabled/000-default.conf
+        regexp: '"^<VirtualHost: \*:80>"'
+        line: '"<VirtualHost: *:8090>"'
+        insertbefore: '"^#<VirtualHost: \*:80>"'
+        backrefs: true
+        state: present
+    - name: Restart service apache2, in all cases
+      service:
+        name: apache2
+        state: restarted
+
+  #################
+  #################
+
+- name: play2-deploy Django server
+  hosts: web2
+  become: true
+  vars:
+    path: /home/ubuntu/lab1
+  tasks:
+    - name: get EC2 public IP
+      command: curl http://169.254.169.254/latest/meta-data/public-ipv4
+      register: ec2_public_ip
+    - name: Install git
+      apt:
+       name: git
+    - name: clone a github repositery
+      git:
+        repo: https://github.com/sabreensalama/Booster_CI_CD_Project.git
+        dest: "{{ path }}"
+        clone: yes
+        update: true
+        force: yes
+    - name: Edit application ip
+      lineinfile:
+        path: "{{ path }}/simpleApp/settings.py"
+        regexp: '^ALLOWED_HOSTS '
+        insertafter: '^#ALLOWED_HOSTS '
+        backrefs: true
+        line: ALLOWED_HOSTS = ['{{ ec2_public_ip.stdout }}']
+    - name: install python
+      apt:
+        name: python3
+        update_cache: true
+    - name: install pip
+      apt:
+        name: python3-pip
+        update_cache: true
+    - name:
+      pip:
+        requirements: "{{ path }}/requirements.txt"
+    - name: Make migration for Data base
+      shell: python3 {{ path }}/manage.py makemigrations
+    - name: Apply the migrations
+      shell: python3 {{ path }}/manage.py migrate
+    - name: Start the server
+      shell: python3 {{ path }}/manage.py runserver 0.0.0.0:8080
+
